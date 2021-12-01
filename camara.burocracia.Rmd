@@ -1,0 +1,99 @@
+#
+```{r}
+library(cepespR)
+```
+
+#
+```{r}
+prefeitos <- cepespR::get_candidates(2012, position = "Prefeito", only_elected = T) %>% 
+  janitor::clean_names()
+
+ver <- cepespR::get_candidates(2012, position = "Vereador", only_elected = T) %>% 
+  janitor::clean_names()
+```
+
+# Coligações dos eleitos em 2012
+```{r}
+coligacoes.eleitos <- prefeitos %>%
+  select(sigla_uf, descricao_ue, sigla_ue, nome_candidato, sigla_partido, composicao_legenda)
+```
+
+# Partidos dos vereadores
+```{r}
+partidos.vereadores <- ver %>% #glimpse()
+  select(sigla_uf, descricao_ue, sigla_ue, nome_candidato, sigla_partido)
+```
+
+# Contar quantos vereadores foram eleitos por partido por municipio
+## Somar a contagem para o total de eleitos por municipios
+
+```{r}
+contagem.partidos.camara <- partidos.vereadores %>% 
+  count(sigla_ue, sigla_partido, name = "qt.ver.part")
+
+contagem.partidos.camara <- contagem.partidos.camara %>% 
+  group_by(sigla_ue) %>% 
+  mutate(total.camara = sum(qt.ver.part)) %>% 
+  arrange(desc(total.camara), desc(qt.ver.part))
+
+# Para checagem: http://g1.globo.com/sao-paulo/eleicoes/2012/noticia/2012/10/veja-lista-de-vereadores-eleitos-em-sp.html
+```
+
+# Transformar as coligações em formato longo
+```{r}
+coligacoes.eleitos <- coligacoes.eleitos %>%  
+  select(sigla_ue, composicao_legenda) %>%
+  separate(composicao_legenda, into = letters, sep = "/") %>% 
+  pivot_longer(-sigla_ue) %>% 
+  select(-name) %>% 
+  drop_na(value) %>% 
+  mutate(part.col = str_squish(value)) %>% 
+  select(-value)
+```
+
+# Juntar a tabela de vereadores com a da coligações somente mantendo quando correponderem a cidade e a sigla de eleitos na camara com a coligação
+```{r}
+df.final <- coligacoes.eleitos %>% 
+  left_join(contagem.partidos.camara, 
+        by = c("sigla_ue" = "sigla_ue", 
+               "part.col" = "sigla_partido")) %>% 
+    drop_na(qt.ver.part)
+```
+
+
+```{r}
+df.final <- df.final %>% 
+  group_by(sigla_ue) %>% 
+  mutate(qt.eleitos.coligacao = sum(qt.ver.part, na.rm = T)) %>% 
+  ungroup() %>% 
+  mutate(metade = total.camara/2,
+         maioria = if_else(metade <= qt.eleitos.coligacao, "Sim", "Não" )
+  )
+```
+
+# 
+```{r}
+df.final.2 <- df.final %>% 
+  distinct(sigla_ue, maioria) 
+```
+
+```{r}
+library(codesBR)
+
+codigos <- rio::import("https://storage.googleapis.com/basedosdados-public/one-click-download/br_bd_diretorios_brasil/municipio.zip")
+```
+
+```{r}
+codigos <- codigos %>% 
+  as_tibble() %>% 
+  select(nome, id_municipio_tse, id_municipio) %>% 
+  mutate(id_municipio_tse = as.character(id_municipio_tse),
+         id_municipio_tse = str_pad(id_municipio_tse, width = 5, side = "left", pad = 0)) 
+
+
+leg <- codigos %>% 
+  left_join(
+      df.final.2, 
+      by = c("id_municipio_tse" = "sigla_ue")) 
+```
+
