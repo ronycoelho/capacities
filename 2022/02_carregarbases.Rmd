@@ -1,0 +1,142 @@
+# Not run 
+```{r}
+# Uso particular para configurações no computador pessoal 
+#getwd()
+save.image("capacities_raw_data.fev.22.RData")
+load("capacities_raw_data.fev.22.RData")
+
+#load("capacities_raw_data.nov.21.RData")
+
+# 15 de outubro de 2021
+#save.image("capacities_1_raw.RData")
+#load("capacities_1_raw.RData")
+```
+
+## Função para carregar as Munics
+```{r eval = F}
+# A funcao carrega dois objetos: 
+# 1 - O dicionário da Munic, contido na primeira aba do excel; 
+# 2 - Os dados das Munics contidos em todas as demais abas, unidos por "A1"
+
+carregar_munics <- function(link_da_munic, ano){
+  # definir diretório e arquivo temporário
+  wd_origin <- getwd()
+  temp_dir <- tempdir()
+  setwd(temp_dir)
+  file.remove(list.files(path = temp_dir))
+  temp_file <- tempfile(tmpdir = temp_dir)
+  # Criar lista para armazenar arquivos 
+  Munic_list <- list()
+  # Download da Munic
+  download.file(url = link_da_munic, destfile = temp_file)
+  # unizip
+  unzip(temp_file)
+  # remover temporário
+  file.remove(temp_file)
+  # selecionar o arquivo xls
+  file.xls <- list.files(pattern = "xls")
+  # Nome da Munic
+  Munic <- paste0("Munic_", ano)
+  # Carregar todas as abas do excel  
+  Munic <- file.xls %>% 
+  excel_sheets() %>% 
+  set_names() %>% 
+  map(read_excel, path = file.xls)
+  # remover arquivo xls da pasta temporaria
+  file.remove(file.xls)
+  # Nome do dicionario
+  dic <- paste0("dic_", ano)
+  # selecionar dicionário
+  dic <- Munic[[1]]
+  # excluir dicionário
+  Munic[[1]] <- NULL
+  # Mesclar todas as abas do excel
+  Munic <- Munic %>% 
+      reduce(full_join, by = "Cod Municipio")
+  # Criar nome da lista 
+  list <- paste0("list_", Munic)
+  # criar lista com dicionário e Munic
+  list <- list(dic, Munic)
+  # retornar ao diretório orginal
+  setwd(wd_origin)
+  # retornar objeto list com dicionário e Munics
+  return(list)
+}
+```
+
+
+
+```{r bases, eval = F}
+########################################
+# Munic 2014
+Munic_14_link <- "ftp://ftp.ibge.gov.br/Perfil_Municipios/2014/base_MUNIC_xls_2014.zip"
+
+Munic_14 <- carregar_munics(link_da_munic = Munic_14_link,
+                            ano = 2014)
+
+Munic_dic_14 <- Munic_14[[1]]
+
+Munic_14 <- Munic_14[[2]]
+
+########################################
+# Munic 2013 - Suplementar
+Munic_13sup_link <- "ftp://ftp.ibge.gov.br/Perfil_Municipios/Assistencia_Social_2013/xls/base_assist_social_2013.zip"
+
+Munic_13 <- carregar_munics(link_da_munic = Munic_13sup_link,
+                            ano = 2013)
+
+Munic_dic_13 <- Munic_13[[1]]
+
+Munic_13 <- Munic_13[[2]]
+
+########################################
+# Munic 2015
+Munic_15_link <- "ftp://ftp.ibge.gov.br/Perfil_Municipios/2015/Base_de_Dados/Base_MUNIC_2015_xls.zip"
+
+Munic_15 <- carregar_munics(link_da_munic = Munic_15_link,
+                            ano = 2015)
+
+Munic_dic_15 <- Munic_15[[1]]
+
+Munic_15 <- Munic_15[[2]]
+
+########################################
+# Transparencia
+
+# Os dados foram baixados do link abaixo e armazedos no meu github para faciltar o download aqui
+# 
+# https://sig.mpf.mp.br/sig/servlet/mstrWeb?evt=3140&src=mstrWeb.3140&documentID=CD5BD3BA11E621B2E4D90080EFC54015&server=MSTRIS.PGR.MPF.MP.BR&Project=Ranking%20da%20Transparencia&port=0&share=1
+  
+transp <- rio::import("https://github.com/ronycoelho/databases/raw/master/D01_Ranking_da_Transpar%C3%AAncia_2016.xlsx", skip=2) %>% 
+  janitor::clean_names()
+
+########################################
+# Pib   
+pib_link <- "ftp://ftp.ibge.gov.br/Pib_Municipios/2017/base/base_de_dados_2010_2017_xls.zip"
+temp_dir <- tempdir()
+#
+temp_file2 <- tempfile(tmpdir = temp_dir)
+# download
+download.file(url = pib_link, destfile = temp_file2)
+#unzip
+unzip(temp_file2)
+# selecionar arquivo
+file.xls <- list.files(pattern = "xls")
+
+pib <- rio::import(file.xls)
+file.remove(file.xls)
+
+########################################    
+# Carregar dados do idh-m
+# idhm_link <- "http://atlasbrasil.org.br/2013/data/rawData/atlas2013_dadosbrutos_pt.xlsx"
+# 
+# idhm_link_new <- "https://github.com/ronycoelho/repo_mun/raw/master/capacidades/idhm_mun_2010_.xlsx"
+# 
+# destfile <- "idhm_mun_2010_.xlsx"
+# curl::curl_download(idhm_link_new, destfile)
+# idhm <- read_excel(destfile)
+
+idhm <- rio::import("https://storage.googleapis.com/basedosdados-public/one-click-download/mundo_onu_adh/municipio.zip")
+```
+
+

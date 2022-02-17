@@ -1,0 +1,302 @@
+---
+title: "Participation, partnerships and planning..."
+output: 
+  html_document:
+    theme: readable
+    code_folding: hide
+    df_print: paged
+    toc_float: true
+    toc: true
+    toc_depth: 3
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = T,
+                      message = F, warning = F)
+```
+
+
+*16/02/22*
+
+```{r pacotes}
+rm(list = ls())
+
+setwd(here::here())
+
+options(scipen = 999)
+
+pacman::p_load(tidyverse, readxl, janitor, sjPlot, 
+               scales, DataExplorer, DT, gridExtra,
+               viridis, ggcorrplot, VGAM, geobr, ggthemes, 
+               snakecase, abjutils, Hmisc)
+```
+
+# 01. Carregar dados
+ 
+##### [Munic 2014](ftp://ftp.ibge.gov.br/Perfil_Municipios/2014/base_MUNIC_xls_2014.zip)
+  * dados da saúde e educação
+  
+##### [Munic 2013 - Bloco Suplementar](ftp://ftp.ibge.gov.br/Perfil_Municipios/Assistencia_Social_2013/xls/base_assist_social_2013.zip) 
+  * dados da assistencia social
+ 
+##### [Munic 2015](ftp://ftp.ibge.gov.br/Perfil_Municipios/2015/Base_de_Dados/Base_MUNIC_2015_xls.zip)
+  * dados dos consórcios nas três áreas (saúde, educ. e assist. social)
+
+##### [Ranking da Transparencia](http://combateacorrupcao.mpf.mp.br/ranking/mapa-da-transparencia/#:~:text=Esse%20%C3%A9%20um%20dos%20resultados,5%2C21%2C%20em%202016.)
+  * ano: 2016
+  
+##### [Pib](ftp://ftp.ibge.gov.br/Pib_Municipios/2017/base/base_de_dados_2010_2017_xls.zip) 
+  * ano: 2014
+ 
+##### [IDH-M](http://atlasbrasil.org.br/2013/data/rawData/atlas2013_dadosbrutos_pt.xlsx)
+  * ano: 2010
+  
+##### [Dados do legislativo]()
+  * ano: 2012
+
+```{r}
+
+load("capacities_raw_data.fev.22.RData")
+```
+
+## Selecionar dados
+```{r selecao}
+###########################################
+# Munic 2014 - saúde e educação
+index_14 <- c("A263", # Conselho de Saúde
+              "A271", # Fundo de Saúde
+              "A273", # Plano de Saúde
+              "A251", # Secretaria de Saúde
+              "A207", # Conselho de Educação
+              "A224", # Conselho do Fundeb, proxy para o fundo
+              "A203", # Plano de Educação
+              "A157", # Secretaria de Educação
+              "A2",   # Total de servidores do Municipio 
+              "A12", # Total com ensino Superior
+              "A13") # Total com pós-graduação
+
+Munic_14_sel <- Munic_14 %>% 
+  dplyr::select(A1,
+                A1022:A1029,
+                index_14)
+
+###########################################    
+#Munic 2013 - Assistência Social
+index_13 <- c("A1", 
+              "A199", # Conselho da Assit. Social
+              "A230", # Fundo da Assist. Social
+              "A149", # Plano da Assist. Social
+              "A2" # Secretaria de Assist. Social
+) 
+
+Munic_13_sel <- Munic_13 %>% 
+  dplyr::select(index_13) 
+###########################################    
+# Munic 2015 - consórcios
+index_15 <- c("A1", 
+              "A151", # Consórcio de Educação
+              "A155", # Consórcio de Saúde
+              "A159") # Consórcio de Assist. Social
+
+Munic_15_sel <- Munic_15 %>% 
+  dplyr::select(index_15)
+
+###########################################        
+# Transparencia - 2016    
+transp <- transp %>% #glimpse()
+  select(uf, municipio, nota_transp_2016 = nota_2a_avaliacao) %>%
+  mutate(municipio = to_snake_case(rm_accent(municipio)), 
+         uf = str_to_lower(uf),
+         manual_id = paste0(uf, "_",municipio)) %>%
+  # Excluir estado  
+  filter(municipio != "estado")  
+
+###########################################        
+# PIB - 2014
+pib <- clean_names(pib)
+pib_sel <- pib %>% #glimpse()
+  filter(ano == 2014) %>% 
+  select(A1 = codigo_do_municipio, ano, 
+         pib_total_2014 = produto_interno_bruto_a_precos_correntes_r_1_000,
+         pib_per_cap = produto_interno_bruto_per_capita_a_precos_correntes_r_1_00)%>%
+  arrange(desc(pib_per_cap)) %>% 
+  select(-ano)
+
+###########################################                
+# IDH-M - 2010
+idhm_sel <- idhm %>%  
+  filter(ano == 2010) %>% 
+  dplyr::select(A1 = id_municipio, ano, idhm) %>% 
+  arrange(desc(idhm)) %>% 
+  select(-ano, idhm_2013 = idhm)
+```
+
+## Mesclar bases
+```{r mesclar}
+# garantir que os códigos possuem a mesma classficação
+Munic_13_sel$A1 <- as.character(Munic_13_sel$A1)
+Munic_15_sel$A1 <- as.character(Munic_15_sel$A1)
+Munic_14_sel$A1 <- as.character(Munic_14_sel$A1)
+pib_sel$A1 <- as.character(pib_sel$A1)
+idhm_sel$A1 <- as.character(idhm_sel$A1)
+
+# Criar variavel com código de 6 digitos para mesclar com a Munic 2013 e mesclar todas as Munics
+capacities <- Munic_14_sel %>% 
+  mutate(A1a = str_sub(A1,start = 1, end = 6)) %>% 
+  select(A1, A1a, everything()) %>% 
+  full_join(Munic_13_sel, by = c("A1a"="A1")) %>% 
+  full_join(Munic_15_sel, by = c("A1"="A1"))
+
+# Mesclar pib e idhm
+capacities <- capacities %>% 
+  full_join(pib_sel) %>% 
+  full_join(idhm_sel, by = "A1") 
+
+# Criar variavel com manual_id para mesclar com a base da transparencia
+capacities <- capacities %>%
+  mutate(mun_temp = to_snake_case(rm_accent(A1027)), 
+           uf_temp = str_to_lower(A1026),
+           manual_id = paste0(uf_temp, "_",mun_temp)) %>%
+  select(-c(mun_temp, uf_temp))
+
+# Removidos 293 Mun.
+capacities <- capacities %>% 
+  inner_join(transp, by = "manual_id") %>% 
+  relocate(nota_transp_2016, .after = A159) %>% 
+  select(-c(municipio, uf, manual_id))  
+```
+
+## Visualização parcial do banco
+
+  - Apenas 10 primeiras linhas
+  - Nomes das variáveis originais
+
+Clique na seta no topo à direita para ver todas as colunas 
+
+```{r parcial_visu}
+#library(dlookr)
+capacities %>% head(10)
+capacities %>% glimpse()
+```
+
+## Organizar e renomenar variáveis 
+```{r organizar_renomear}
+capacities <- capacities %>%
+  select(
+    cod_mun = A1,
+    nm_mun = A1027,
+    populacao = A1028,
+    faixa_pop = A1029,
+    cod_est = A1022,
+    nm_est = A1025,
+    sg_est = A1026,
+    regiao = A1024,
+    # Secretarias
+    sc_sa = A251,
+    sc_as = A2.y,
+    sc_ed = A157,
+    # Planos
+    pl_sa = A273,
+    pl_as = A149,
+    pl_ed = A203,
+    # Conselhos
+    chl_sa = A263,
+    chl_as = A199,
+    chl_ed = A207,
+    # Consórciso
+    consor_ed = A151,
+    consor_sa = A155,
+    consor_as = A159,
+    # Fundos
+    fu_sa = A271,
+    fu_as = A230,
+    fu_ed = A224,
+    # Servidores
+    ser_total = A2.x,
+    # Total de servidores do Municipio
+    ser_sup = A12,
+    #    "A12", # Total com ensino Superior
+    ser_pos.grad = A13,
+    # Transparencia
+    nota_transp_2016 = nota_transp_2016,
+    pib_total_2014 = pib_total_2014,
+    pib_per_cap = pib_per_cap,
+    idhm_2013 = idhm_2013)
+```
+
+#
+```{r}
+# leg.maioria <- read_csv("maioria.leg_2.csv", 
+#     locale = locale(encoding = "WINDOWS-1252"))
+leg.maioria <- leg.maioria %>% 
+  #mutate(maioria.leg = ifelse(maioria == "Sim", 1, 0)) %>% 
+  select(-1, cod_mun = id_municipio, maioria.leg_2012 = maioria) %>% 
+  mutate(cod_mun = as.character(cod_mun))
+
+capacities <- capacities %>% 
+  left_join(leg.maioria)
+```
+
+# classificar variáveis
+```{r}
+character_col <- c("cod_mun", "nm_mun")
+
+factor_col <- c("cod_est", "nm_est", "sg_est","faixa_pop", "regiao", "pl_sa", "pl_as", "pl_ed", "chl_sa", "chl_as", "chl_ed", "consor_ed", "consor_ed", "consor_sa", "consor_as") 
+
+numeric_col <- c("populacao",  "pib_total_2014", "pib_per_cap", "idhm_2013", "nota_transp_2016", "ser_total", "ser_sup", "ser_pos.grad")
+
+capacities <- capacities %>% 
+  mutate_at(character_col, as.character) %>% 
+  mutate_at(factor_col, as.factor) %>% 
+  mutate_at(numeric_col, as.numeric)
+```
+
+### Verificar e remover NAs
+
+ - NA - Not Available (dados não disponíveis)
+```{r verificar_na_1}
+# Verificar existência de NAs
+DataExplorer::plot_missing(capacities)
+```
+
+# Transformar NA dos servidores em 0
+```{r}
+capacities <- capacities %>% 
+  mutate(
+    across(ser_total:ser_pos.grad, ~replace_na(.x, 0)) 
+    )
+```
+
+```{r}
+# NA - presentes apenas nos IDHM
+# Excluir NA's
+# Removidos 5 municipios não criados até 2010, portante sem o IDHM para esse ano.
+
+# removidos 27 municipios
+# Total de removidos = 320
+capacities <- capacities %>% 
+  drop_na()
+```
+
+
+
+##### Not run
+```{r Not_run_2}
+# Uso particular para configurações de uso pessoal
+#setwd("C:/r_files/my_academic_projects/capacidades/capacitties")
+#save.image("capacities_1_raw.RData")
+#load("capacities_1_raw.RData")
+write.csv(capacities, "dados.brutos.csv")
+```
+
+```{r}
+#write.csv(shape_mun, "shape_mun.csv")
+#write.csv(shape_estado, "shape_estado.csv")
+```
+
+```{r}
+rm(list = ls())
+```
+

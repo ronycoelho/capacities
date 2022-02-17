@@ -1,0 +1,544 @@
+---
+title: "Participation, partnerships and planning..."
+output: 
+  html_document:
+    theme: readable
+    code_folding: hide
+    df_print: paged
+    toc_float: true
+    toc: true
+    toc_depth: 3
+editor_options: 
+  chunk_output_type: console
+---
+
+
+# Carregar dados brutos
+
+```{r message=FALSE, warning=FALSE}
+pacman::p_load(tidyverse, readxl, janitor, sjPlot, 
+               scales, DataExplorer, DT, gridExtra,
+               viridis, ggcorrplot, VGAM, geobr, ggthemes, 
+               snakecase, abjutils, Hmisc)
+```
+
+
+```{r message=FALSE, warning=FALSE}
+rm(list = ls())
+setwd("C:/rstats/capacidades_ingles/capacities.2021")
+
+cap.manipulado <- read_csv("dados.brutos.csv", 
+    locale = locale(encoding = "WINDOWS-1252"))
+```
+
+***
+# 02. Visualizar dados brutos
+
+* Legenda:  
+
+  - cod_mun = código do município
+  - nm_mun = nome do município
+  - cod_est = código do estado 
+  - nm_est = nome do estado 
+  - sg_est = sigla do estado
+  - populacao = população do município
+  - faixa_pop = classificação da faixa populacional (IBGE)
+  - sc_ = secretaria exclusiva (sa = saúde; ed = educação; as = assistência social)
+  - pl_ = plano setorial (sa = saúde; ed = educação; as = assistência social)
+  - chl_ = conselho setorial (sa = saúde; ed = educação; as = assistência social)
+  - consor_ = consórcios setoriais (sa = saúde; ed = educação; as = assistência social)
+  - ser_ = % servidores com superior
+  - nota_tranp = nota do ranking da transparencia do MP
+  - pib_total = Pib total do município
+  - pib_per_cap = Pib per capta do município
+  - ano_pib = ano de referência do Pib
+  - idhm = IDHM do município 
+  - ano_idhm = ano de referência do IDHM
+  - maioria.leg = maioria no legislativo municipal da mesma coligação que elegeu o prefeito
+  
+```{r visualizar_raw_data, fig.width = 20, message=FALSE, warning=FALSE}
+cap.manipulado %>%
+  datatable(extensions = 'Buttons',
+            rownames = F,
+            options = list(dom = 'Blfrtip',
+                           buttons = c('csv', 'excel'),
+                          autoFill = TRUE,
+                           fixedHeader = TRUE,
+                           autowidth = TRUE,
+                           paging = F,
+                           scrollX = TRUE,
+                           scrollY = "400px"))
+```
+
+*** 
+# 03. Manipulação
+
+### Verificar aplicação
+
+  - Visualizar:
+  
+      - Quantidades em cada categoria 
+
+      - Estatisticas descritivas básicas
+      
+      - Faixa de população por região
+
+```{r visualizar pop}
+sjt.xtab(cap.manipulado$faixa_pop, 
+                 cap.manipulado$regiao, 
+                 encoding = "WINDOWS-1252", 
+                 show.summary = F,
+                 show.row.prc = T,
+                 show.col.prc = T,
+           title = "Faixa de população por região")
+```
+
+
+## Sumário das variáveis
+
+  - Numéricas: são apresentados valores mínimos, máximos, média, mediana etc.
+  
+  - Categóricas: categorias e quantidade de cada uma 
+  
+  - *Character*: quantidade de valores únicos
+  
+```{r sumario vars, fig.width = 20}
+character_col <- c("cod_mun", "nm_mun")
+
+factor_col <- c("cod_est", "nm_est", "sg_est","faixa_pop", "regiao", "pl_sa", "pl_as", "pl_ed", "chl_sa", "chl_as", "chl_ed", "consor_ed", "consor_ed", "consor_sa", "consor_as", "sc_sa", "sc_as", "sc_ed", "fu_sa", "fu_as", "fu_ed", "maioria.leg_2012") 
+
+numeric_col <- c("populacao",  "pib_total_2014", "pib_per_cap", "idhm_2013", "nota_transp_2016", "ser_total", "ser_sup", "ser_pos.grad")
+
+cap.manipulado <- cap.manipulado %>% 
+  mutate_at(character_col, as.character) %>% 
+  mutate_at(factor_col, as.factor) %>% 
+  mutate_at(numeric_col, as.numeric)
+
+skimr::skim(cap.manipulado)
+summary(cap.manipulado)
+
+
+
+```
+
+
+### Filtrar casos com "recusa" 
+
+- 1 mun. (cod_mun: 2102150) recusou-se a responder todas as questões
+
+- 1 mun. (cod_mun: 2102150) recusou-se a responder questões sobre consórcios
+
+- Outros casos serão excluídos oportunamente
+
+```{r excluir_recusas}
+# cap.manipulado_2[which(cap.manipulado_2$sc_as == "Recusa"), ]
+# cap.manipulado_2[which(cap.manipulado_2$sc_ed == "Recusa"), ]
+# cap.manipulado_2[which(cap.manipulado_2$consor_ed == "Recusa"), ]
+
+# # A tibble: 1 x 31
+#   cod_mun nm_mun populacao faixa_pop cod_est nm_est sg_est regiao sc_sa sc_as sc_ed pl_sa pl_as pl_ed
+#   <chr>   <chr>      <dbl> <fct>     <fct>   <fct>  <fct>  <fct>  <fct> <fct> <fct> <fct> <fct> <fct>
+# 1 2102150 Brejo~      4291 1 - Até ~ 21      Maran~ MA     2 - N~ Recu~ Recu~ Recu~ Recu~ Recu~ Recu~
+
+# Filtrar 2 municipios com recusa para todas as variáveis
+cap.manipulado <- filter(cap.manipulado, cod_mun != 2102150) 
+cap.manipulado <- filter(cap.manipulado, cod_mun != 4110508) 
+```
+
+## IDHM
+
+ - Quintis
+
+```{r quintil, fig.width=5}
+#Verificar quantiles 
+quant_idhm <- quantile(cap.manipulado$idhm_2013, c(.2,.4,.6,.8,1))
+
+# 20%   40%   60%   80%  100% 
+# 0.592 0.643 0.691 0.728 0.862 
+
+quant_idhm %>% knitr::kable()
+```
+
+### Categorizar IDHM por quintis
+```{r cat_idhm}
+cap.manipulado <- cap.manipulado %>% 
+  mutate(idhm_quintil = case_when(
+    idhm_2013 <= 0.592 ~ "primeiro",
+    idhm_2013 >= 0.593 & idhm_2013 <= 0.643 ~ "segundo",
+    idhm_2013 >= 0.644 & idhm_2013 <= 0.691 ~ "terceiro",
+    idhm_2013 >= 0.692 & idhm_2013 <= 0.728 ~ "quarto",
+    idhm_2013 >= 0.729 ~ "quinto")) %>% 
+    relocate(idhm_quintil, .after = idhm_2013)
+    
+
+levels_idhm = c("primeiro", "segundo", "terceiro", "quarto", "quinto")
+
+cap.manipulado$idhm_quintil <- ordered(cap.manipulado$idhm_quintil, 
+               levels = c(levels_idhm))
+
+cap.manipulado %>% 
+  count(idhm_quintil, name = "qtdd_de_mun") %>% 
+  mutate(perc = round(qtdd_de_mun/sum(qtdd_de_mun)*100, 1))
+```
+
+## *Dummies* 
+
+  - Transformar variáveis em *dummies*  
+   
+  Transformar todas as respostas "Sim" = 1;
+  
+  Todas demais opções ("Não", "Não informado", etc) = 0
+  
+  Depois, realizar a contagem de "Sim" e classificar
+  
+### Planos
+
+- realizar contagem de "Sim" e categorizar
+```{r categ_pl, message=FALSE, warning=FALSE}
+levels_cat <- c("Não possui" ,"Possui 1", "Possui 2","Possui 3")
+
+# # Verificar lables
+# unique(cap.manipulado_1$pl_as)
+# unique(cap.manipulado_1$pl_sa)
+# unique(cap.manipulado_1$pl_ed)
+
+# Criar dummies 1 = Sim; 0 = Não.
+cap.manipulado <- cap.manipulado %>%
+  mutate_at(vars(pl_sa:pl_ed), funs(ifelse(.== "Sim", 1, 0))) 
+
+# Contar quantidade de "sim" e organizar colunas
+cap.manipulado <- cap.manipulado %>% 
+  mutate(Num_pl = rowSums(select(.,pl_sa:pl_ed)))%>% #glimpse() 
+  relocate(Num_pl, .after = pl_ed)
+
+# Categorizar quantidade de planos planos
+cap.manipulado <- cap.manipulado %>%
+  mutate(Pl_class = case_when(
+    Num_pl == 3 ~ "Possui 3",
+    Num_pl == 2 ~ "Possui 2",
+    Num_pl == 1 ~ "Possui 1",
+    Num_pl == 0 ~ "Não possui")) %>% 
+    relocate(Pl_class, .after = Num_pl)
+
+cap.manipulado$Pl_class <- ordered(cap.manipulado$Pl_class, 
+               levels = c(levels_cat))
+
+cap.manipulado %>% 
+  count(Pl_class, name = "quantidade") %>% 
+  mutate(perc = round(quantidade/sum(quantidade)*100,1))
+```
+
+
+```{r table_pl}
+sjt.xtab(cap.manipulado$idhm_quintil, 
+                 cap.manipulado$Pl_class, 
+                 encoding = "UTF8", 
+                 show.summary = F,
+                 show.row.prc = T,
+                 show.col.prc = T,
+           title = "Planos por IDHM (quintis)")
+```
+
+### Conselhos
+
+- realizar contagem de "Sim" e categorizar
+```{r categ_chl}
+# # Verificar lables
+# unique(cap.manipulado_1$chl_as)
+# unique(cap.manipulado_1$chl_sa)
+# unique(cap.manipulado_1$chl_ed)
+
+
+# Criar dummies 1 = Sim; 0 = Não.
+cap.manipulado <- cap.manipulado %>% 
+  mutate_at(vars(chl_sa:chl_ed), funs(ifelse(.== "Sim", 1, 0))) 
+
+# Contar quantidade de "sim" e organizar colunas
+cap.manipulado <- cap.manipulado %>% 
+  mutate(Num_chl = rowSums(select(.,chl_sa:chl_ed)))%>% 
+  relocate(Num_chl, .after = chl_ed)
+
+# Categorizar quantidade de planos planos
+cap.manipulado <- cap.manipulado %>% 
+  mutate(Chl_class = case_when(
+    Num_chl == 3 ~ "Possui 3",
+    Num_chl == 2 ~ "Possui 2",
+    Num_chl == 1 ~ "Possui 1",
+    Num_chl == 0 ~ "Não possui")) %>% 
+    relocate(Chl_class, .after = Num_chl)
+
+cap.manipulado$Chl_class <- ordered(cap.manipulado$Chl_class, 
+               levels = c(levels_cat))
+
+cap.manipulado %>% 
+  count(Chl_class, name = "quantidade") %>% 
+  mutate(perc = round(quantidade/sum(quantidade)*100, 1))
+```
+
+
+```{r table_chl}
+sjt.xtab(cap.manipulado$idhm_quintil, 
+                 cap.manipulado$Chl_class, 
+                 encoding = "UTF8", 
+                 show.summary = F,
+                 show.row.prc = T,
+                 show.col.prc = T,
+           title = "Conselhos por IDHM (quintis)")
+```
+
+
+### Consórcios
+
+- realizar contagem de "Sim" e categorizar
+```{r categ_consor}
+# # Assistência Social
+#levels(cap.manipulado$consor_as)
+# levels(cap.manipulado_2$consor_ed)
+# levels(cap.manipulado_2$consor_sa)
+
+cap.manipulado <- cap.manipulado %>%
+  mutate_at(vars(consor_ed:consor_as), 
+            funs(ifelse(.== "Sim", 1, 0))) 
+
+# Contar quantidade de "sim" e organizar colunas
+cap.manipulado <- cap.manipulado %>% 
+  mutate(Num_consor = rowSums(select(.,consor_ed:consor_as)))%>% 
+  relocate(Num_consor, .after = consor_as)
+
+# Categorizar quantidade de planos planos
+cap.manipulado <- cap.manipulado %>% 
+  mutate(Consor_class = case_when(
+    Num_consor == 3 ~ "Possui 3",
+    Num_consor == 2 ~ "Possui 2",
+    Num_consor == 1 ~ "Possui 1",
+    Num_consor == 0 ~ "Não possui")) %>% 
+    relocate(Consor_class, .after = Num_consor)
+
+cap.manipulado$Consor_class <- ordered(cap.manipulado$Consor_class,
+               levels = c(levels_cat))
+
+cap.manipulado %>% 
+  count(Consor_class, name = "quantidade") %>% 
+  mutate(perc = round(quantidade/sum(quantidade)*100,1))
+```
+
+
+```{r table_consor}
+sjt.xtab(cap.manipulado$idhm_quintil, 
+                 cap.manipulado$Consor_class, 
+                 encoding = "UTF8", 
+                 show.summary = F,
+                 show.row.prc = T,
+                 show.col.prc = T,
+           title = "Consórcios por IDHM (quintis)")
+```
+
+# Transformar Secretaria exclusiva.
+```{r}
+# Sim = 1
+cap.manipulado <- cap.manipulado %>%
+  mutate_at(vars(sc_sa:sc_ed),
+            funs(ifelse(
+              . == "Secretaria municipal exclusiva", "Sim", "Não"
+            )))
+
+cap.manipulado <- cap.manipulado %>%
+  mutate_at(vars(sc_sa:sc_ed), funs(ifelse(. == "Sim", 1, 0)))
+
+# Contar quantidade de "sim" e organizar colunas
+cap.manipulado <- cap.manipulado %>%
+  mutate(Num_sc = rowSums(select(., sc_sa:sc_ed))) %>%
+  relocate(Num_sc, .after = sc_ed)
+
+# Categorizar quantidade de secretarias
+cap.manipulado <- cap.manipulado %>%
+  mutate(
+    Sc_class = case_when(
+      Num_sc == 3 ~ "Possui 3",
+      Num_sc == 2 ~ "Possui 2",
+      Num_sc == 1 ~ "Possui 1",
+      Num_sc == 0 ~ "Não possui"
+    )
+  ) %>%
+  relocate(Sc_class, .after = Num_sc)
+levels_cat <- c("Não possui" , "Possui 1", "Possui 2", "Possui 3")
+
+cap.manipulado$Sc_class <- ordered(cap.manipulado$Sc_class,
+                                   levels = c(levels_cat))
+# Verificar
+cap.manipulado %>%
+  count(Sc_class, name = "quantidade") %>%
+  mutate(perc = quantidade / sum(quantidade) * 100)
+```
+
+```{r}
+sjt.xtab(cap.manipulado$idhm_quintil, 
+                 cap.manipulado$Sc_class, 
+                 encoding = "UTF8", 
+                 show.summary = F,
+                 show.row.prc = T,
+                 show.col.prc = T,
+           title = "Secretarias por IDHM (quintis)")
+```
+
+### Fundos
+- realizar contagem de "Sim" e categorizar
+```{r}
+# # Verificar lables
+# unique(cap.manipulado_1$fu_as)
+# unique(cap.manipulado_1$fu_sa)
+# unique(cap.manipulado_1$fu_ed)
+# Criar dummies 1 = Sim; 0 = Não.
+cap.manipulado <- cap.manipulado %>% 
+  mutate_at(vars(fu_sa:fu_ed), funs(ifelse(.== "Sim", 1, 0))) 
+
+cap.manipulado <- cap.manipulado %>% 
+  mutate(Num_fu = rowSums(select(.,fu_sa:fu_ed)))%>% 
+  relocate(Num_fu, .after = fu_ed) 
+
+# Categorizar quantidade de fundos
+cap.manipulado <- cap.manipulado %>% 
+  mutate(Fu_class = case_when(
+    Num_fu == 3 ~ "Possui 3",
+    Num_fu == 2 ~ "Possui 2",
+    Num_fu == 1 ~ "Possui 1",
+    Num_fu == 0 ~ "Não possui")) %>% 
+  relocate(Fu_class, .after = Num_fu)
+
+cap.manipulado$Fu_class <- ordered(cap.manipulado$Fu_class, 
+                                    levels = c(levels_cat))
+
+cap.manipulado %>% 
+  count(Fu_class, name = "quantidade") %>% 
+  mutate(perc = quantidade/sum(quantidade)*100)
+```
+
+
+```{r}
+sjt.xtab(cap.manipulado$idhm_quintil, 
+                 cap.manipulado$Fu_class, 
+                 encoding = "UTF8", 
+                 show.summary = F,
+                 show.row.prc = T,
+                 show.col.prc = T,
+           title = "Secretarias por IDHM (quintis)")
+```
+
+
+# Maioria legislativo
+```{r}
+cap.manipulado <- cap.manipulado %>% 
+  mutate(leg.dummie_2012 = ifelse(maioria.leg_2012 == "Sim", 1, 0)) %>% 
+  relocate(leg.dummie_2012, .after = maioria.leg_2012)
+```
+
+```{r}
+sjt.xtab(cap.manipulado$idhm_quintil, 
+                 cap.manipulado$maioria.leg_2012, 
+                 encoding = "UTF8", 
+                 show.summary = F,
+                 show.row.prc = T,
+                 show.col.prc = T,
+           title = "Secretarias por IDHM (quintis)")
+```
+
+
+# % servidores com superior
+```{r}
+cap.manipulado <- cap.manipulado %>%  
+  mutate(ser_sup = ifelse(is.na(ser_sup), 0, ser_sup)) %>% 
+  mutate(ser_pos.grad = ifelse(is.na(ser_pos.grad), 0, ser_pos.grad)) %>% 
+  mutate(ser_total = ifelse(is.na(ser_total), 0, ser_total)) %>% 
+  mutate(ser_sup_soma.temp = ser_sup + ser_pos.grad,
+         ser_perc = round(ser_sup_soma.temp/ser_total*100, 1)) %>% 
+  select(-ser_sup_soma.temp) %>% 
+  relocate(ser_perc, .after = ser_pos.grad) %>% 
+  filter(ser_total !=0)
+
+#class(cap.manipulado$ser_perc)
+```
+
+
+```{r}
+cap.manipulado %>% 
+  ggplot(aes(y = ser_perc, x = 1))+
+  geom_boxplot()+
+  theme_minimal()+
+  labs(title = "Distribuição da porcentagem de servidores com superior em relaçã ao total")
+```
+
+***
+# 04. Ver dados manipulados
+```{r visualizar_raw_data_2, fig.width = 20, message=FALSE, warning=FALSE}
+cap.manipulado %>%
+  datatable(extensions = 'Buttons',
+            rownames = F,
+            options = list(dom = 'Blfrtip',
+                           buttons = c('csv', 'excel'),
+                          autoFill = TRUE,
+                           fixedHeader = TRUE,
+                           autowidth = TRUE,
+                           paging = F,
+                           scrollX = TRUE,
+                           scrollY = "400px"))
+```
+
+### Verificar e remover NA's
+
+ - NA - Not Available (dados não disponíveis)
+```{r verificar_na_3}
+DataExplorer::plot_missing(cap.manipulado)
+
+# removidos 37
+cap.manipulado <- cap.manipulado %>% 
+  drop_na()
+```
+
+***
+# 06. Matriz de correlação B
+```{r correl, fig.width= 8, fig.height=8, message=FALSE, warning=FALSE}
+cap_cor <- cap.manipulado %>% 
+  select(pib_per_cap,
+         idhm_2013,
+         starts_with("Num"),
+         ser_perc,
+         nota_transp_2016, 
+         leg.dummie_2012, 
+         populacao) 
+
+corr <- round(cor(cap_cor), 2)
+
+ggcorrplot(corr, hc.order = F, 
+           type = "lower", 
+           show.diag = T,
+           pch = 12,
+           pch.cex = 12,
+           tl.cex = 12,
+           lab = TRUE, 
+           lab_size = 3, 
+           method="circle", 
+           colors = c("tomato2", "white", "springgreen3"), 
+           title="Correlação entre variáveis numéricas (dummies)", 
+           ggtheme=theme_bw)
+```
+
+
+```{r}
+cap.manipulado.regr <- cap.manipulado %>% 
+  select(cod_mun,
+         populacao,
+         cod_est,
+         regiao,
+        pib_per_cap,
+         starts_with("Num"), 
+         ser_perc,
+         nota_transp_2016, 
+        leg.dummie_2012,
+         idhm_2013) 
+```
+
+
+```{r}
+write.csv(cap.manipulado.regr, "capacities.manipulado.csv")
+```
+
