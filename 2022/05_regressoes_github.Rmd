@@ -1,0 +1,201 @@
+```{r}
+library(tidyverse)
+```
+
+# Carregar base
+```{r}
+rm(list = ls())
+
+cap.manipulado.regr <- read_csv("https://raw.githubusercontent.com/ronycoelho/capacities/main/2022/cap.manipulado.regr.csv", 
+                                locale = locale(encoding = "WINDOWS-1252"))
+
+
+# cap.manipulado.regr <- read_csv("cap.manipulado.regr.csv", 
+#     locale = locale(encoding = "WINDOWS-1252"))
+```
+
+```{r}
+cap.manipulado.regr <- cap.manipulado.regr %>% 
+  dplyr::select(-1) 
+
+#cap.manipulado.regr$idhm_quintil
+
+cap.manipulado.regr$idhm_quintil <- factor(cap.manipulado.regr$idhm_quintil,
+                                           levels = c("primeiro", "segundo", "terceiro", "quarto", "quinto"), ordered = T)
+
+cap.manipulado.regr %>% glimpse()
+cap.manipulado.regr %>% count(faixa_pop)
+```
+
+# Verificar pressupostos
+- https://www.youtube.com/watch?v=wZLlL173uVc&ab_channel=FernandaPeres
+- https://www.dropbox.com/s/l5ioz6sod7wxg1e/Regressao%20Ordinal.R?dl=0
+```{r}
+m.pressuposto.1 <- lm(as.numeric(idhm_quintil) ~ pib_per_cap + Num_sc + Num_pl + Num_chl + Num_consor + Num_fu + ser_perc + nota_transp_2016 + leg.dummie_2012, data = cap.manipulado.regr)
+```
+
+# Primeiro pressuposto
+```{r}
+vif <- car::vif(m.pressuposto.1)
+
+vif
+
+### Multicolinearidade: VIF > 10
+
+# Todos os valores estão próximos a 1, o que representa não multicolinearidade
+```
+
+# Todos os municipios e todas as variáveis
+### Construção do modelo para verificar pressuposto 2
+```{r}
+m.pressuposto.2 <- MASS::polr(idhm_quintil ~ log(pib_per_cap) + Num_sc + Num_pl + Num_chl + Num_consor + Num_fu + ser_perc + nota_transp_2016 + leg.dummie_2012, data = cap.manipulado.regr, Hess = T)
+```
+
+# pressuposto 2
+```{r}
+car::poTest(m.pressuposto.2)
+
+# Não atendeu ao pressuposto
+```
+
+# Verificar Anova
+```{r}
+Anova(m.pressuposto.2, type = "II", test = "Wald")
+```
+
+# Sumário do modelo
+```{r}
+summary(m.pressuposto.2)
+```
+
+```{r}
+lmtest::coeftest(m.pressuposto.2)
+```
+
+
+##########
+# Modelo 1 - Replicar o modelo anterior. Menor 50 mil
+```{r}
+mod.original <- filter(cap.manipulado.regr, populacao <= 50000)
+
+mod.1 <- MASS::polr(idhm_quintil ~ log(pib_per_cap) + Num_sc + Num_pl + Num_chl + Num_consor + nota_transp_2016 + leg.dummie_2012, 
+                    data = mod.original, 
+                    Hess = T)
+```
+
+# 
+```{r}
+summary(mod.1)
+lmtest::coeftest(mod.1)
+get_estimates(mod.1)
+exp(cbind(OdssRatio = coef(mod.1), confint(mod.1)))
+```
+
+# Modelo 2 - Todos os municipios 
+```{r}
+mod.2.todos <- MASS::polr(idhm_quintil ~ log(pib_per_cap) + Num_sc + Num_pl + Num_chl + Num_consor + nota_transp_2016 + leg.dummie_2012,                     data = cap.manipulado.regr,
+                    Hess = T)
+```
+
+
+```{r}
+summary(mod.2.todos)
+lmtest::coeftest(mod.2.todos)
+get_estimates(mod.2.maior.100)
+exp(cbind(OdssRatio = coef(mod.2.maior.100), confint(mod.2.maior.100)))
+```
+
+# Modelo 3 - Municipios grandes - Maior do 100 mil - 289 casos
+```{r}
+df.mod.3 <- filter(cap.manipulado.regr, populacao >= 100000)
+
+mod.3.maior.100 <- MASS::polr(idhm_quintil ~ log(pib_per_cap) + Num_sc + Num_pl + Num_chl + Num_consor + nota_transp_2016 + leg.dummie_2012, 
+                    data = df.mod.3,
+                    Hess = T)
+```
+
+
+```{r}
+summary(mod.3.maior.50)
+lmtest::coeftest(mod.3.maior.100)
+get_estimates(mod.2)
+exp(cbind(OdssRatio = coef(mod.2), confint(mod.2)))
+```
+
+# Modelo 4 - Municipios médios de 50 a 100 mil
+```{r}
+df.mod.4 <- filter(cap.manipulado.regr, faixa_pop == "5 - 50001 até 100000")
+
+mod.4.medios <- MASS::polr(idhm_quintil ~ log(pib_per_cap) + Num_sc + Num_pl + Num_chl + Num_consor + nota_transp_2016 + leg.dummie_2012, 
+                    data = df.mod.4,
+                    Hess = T)
+```
+
+# 
+```{r}
+summary(mod.4.medios)
+lmtest::coeftest(mod.4.medios)
+get_estimates(mod.2)
+exp(cbind(OdssRatio = coef(mod.2), confint(mod.2)))
+```
+
+
+# Modelo 5 - Entre 20 mil e 50 mil
+```{r}
+df.mod.5 <- filter(cap.manipulado.regr, faixa_pop == "4 - 20001 até 50000")
+
+mod.5.entre20e50 <- MASS::polr(idhm_quintil ~ log(pib_per_cap) + Num_sc + Num_pl + Num_chl + Num_consor + nota_transp_2016 + leg.dummie_2012, 
+                    data = df.mod.5,
+                    Hess = T)
+```
+
+```{r}
+#summary(mod.5.menor.10)
+lmtest::coeftest(mod.5.entre20e50)
+get_estimates(mod.2)
+exp(cbind(OdssRatio = coef(mod.2), confint(mod.2)))
+```
+
+# Modelo 6 - Menor que 5 mil - 1159 casos
+```{r}
+df.mod.6 <- filter(cap.manipulado.regr, faixa_pop == "1 - Até 5000")
+
+mod.6.ate5 <- MASS::polr(idhm_quintil ~ log(pib_per_cap) + Num_sc + Num_pl + Num_chl + Num_consor + nota_transp_2016 + leg.dummie_2012, 
+                    data = df.mod.6,
+                    Hess = T)
+```
+
+# Modelo 
+```{r}
+summary(mod.6.menor.5)
+lmtest::coeftest(mod.6.ate5)
+get_estimates(mod.2)
+exp(cbind(OdssRatio = coef(mod.2), confint(mod.2)))
+```
+
+
+# Sumário do modelo
+```{r}
+library(modelsummary)
+
+tidy_custom.polr <- function(x, ...) {
+  s <- lmtest::coeftest(x)
+  out <- data.frame(
+    term = row.names(s),
+    p.value = s[, "Pr(>|t|)"])
+  out
+}
+
+
+modelos <- list(
+  "Modelo 1" = mod.1,
+  "Modelo 2" = mod.2.todos,
+  "Modelo 3" = mod.3.maior.100,
+  "Modelo 4" = mod.4.medios,
+  "Modelo 5" = mod.5.entre20e50,
+  "Modelo 6" = mod.6.ate5)
+```
+
+```{r}
+modelsummary(modelos, stars = TRUE, output = "table_modelos.docx")
+```
